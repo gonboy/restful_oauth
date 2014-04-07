@@ -1,7 +1,7 @@
 restful_oauth
 =============
 
-A Generic Pre-Set-Up RESTful API Server Using Flask, MongoDB, and OAuth2
+[A Generic Pre-Set-Up RESTful API Server Using Flask, MongoDB, and OAuth2]
 
 This is a generic set-up of a RESTful API back-end server with OAuth2 authentication - using Flask-OAuthlib https://github.com/lepture/flask-oauthlib Flask-RESTful https://github.com/twilio/flask-restful and https://github.com/hmarr/mongoengine
 
