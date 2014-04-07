@@ -1,0 +1,19 @@
+# EXCLUDE
+__pycache__/
+settings_production.py
+.coverage
+.cache
+*.egg-info/
+~*
+bin/
+[Ll]ib/
+[Ll]ib/*
+[Ll]ib/*/
+[Ll]ib/*/*
+[Ll]ib/*/*/
+[Ll]ib/*/*/*
+[Ll]ib64/
+local/
+dist/
+[Ss]cripts/
+[Ii]nclude/

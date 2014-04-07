@@ -1,0 +1,15 @@
+server {
+    listen 80;
+    listen 443 default ssl;
+    server_name  foo.com;
+    location / { try_files $uri @yourapplication; }
+    location @yourapplication {
+      include uwsgi_params;
+      uwsgi_pass unix:/path/to/uwsgi.sock;
+    }
+    ssl on;
+    ssl_certificate /path/to/api/conf/server.crt;
+    ssl_certificate_key /path/to/api/conf/server.key;
+    access_log /path/to/logs/access.log;
+    error_log /path/to/logs/error.log;
+}
