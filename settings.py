@@ -1,2 +1,5 @@
 from settings_development import *
-from settings_production import *
+try:
+    from settings_production import *
+except:
+    pass
