@@ -10,16 +10,29 @@ from models import Client, Token, Grant
 from flask.ext.restful import Resource, reqparse
 from flask import jsonify, session, abort, redirect, request
 
+def home():
+    json = dict(request.args)
+    json_dict = {}
+    for k, v in json.items():
+        if type(v) is list and len(v) == 1:
+            json_dict[k] = v[0]
+        else:
+            json_dict[k] = v
+    if json_dict:
+        return jsonify(json_dict)
+    return jsonify({'message': 'Welcome to My API!'})
+
 def current_user():
     if 'id' in session:
         id = str(session['id'])
         return User.objects(id=id)[0]
     return None
 
-def login(error=None, user_id=None, registered=False):
+def authenticate_web_user(error=None, user=None, registered=False, sign_in=False):
     if error:
         return redirect('%s?error=%s' %(WEB_APP_REDIRECT_URL, error))
-    elif user_id:
+    elif user:
+        user_id = str(user.id)
         data = {
                 "user_id": user_id,
                 "client_id": WEB_APP_CLIENT_ID,
@@ -35,13 +48,25 @@ def login(error=None, user_id=None, registered=False):
             resp = client.post('/oauth/authorize', data=data)
         except:
             pass
-        try:            
+        try:
             code = parse_qs(urlparse(resp.location).query)['code'][0]
             check = True
         except:
             pass
         if not check:
-            return redirect('%s?error=Something went wrong - Please try again later!' %WEB_APP_REDIRECT_URL)
+            try:
+                message = parse_qs(urlparse(resp.location).query)['error'][0]
+            except:
+                try:
+                    message = data['message']
+                except:
+                    try:
+                        message = ast.literal_eval(resp.data)['message']
+                    except:
+                        message = 'Something went wrong - Please try again later!'
+            if sign_in:
+                return {'message': message}, 500
+            return redirect('%s?error=%s' %(WEB_APP_REDIRECT_URL, message))
         resp = None
         data = {
                 "grant_type": "authorization_code",
@@ -56,28 +81,39 @@ def login(error=None, user_id=None, registered=False):
             pass
         try:
             data = ast.literal_eval(resp.data)
+            user_id = data['user_id']
+            if sign_in:
+                token = Token.objects(user=user_id, client=WEB_APP_CLIENT_ID)[0]
+                scopes = token._scopes
+                scopes.append('surrogate-authenticated')
+                if user.is_admin:
+                    scopes.append('surrogate-admin')
+                token._scopes = scopes
+                token.save()
+                return {'user_id': user_id, 'access_token': data['access_token'], 'refresh_token': data['refresh_token']}, 200
             if registered:
-                user_id = '?user_id=%s&' %data['user_id']
+                token = Token.objects(user=user_id, client=WEB_APP_CLIENT_ID)[0]
+                scopes = token._scopes
+                scopes.append('surrogate-authenticated')
+                token._scopes = scopes
+                token.save()
             else:
-                user_id = '?'
-            url = '%s%saccess_token=%s&refresh_token=%s' %(WEB_APP_REDIRECT_URL, user_id, data['access_token'], data['refresh_token'])
+                user_id = '0'
+            url = '%s%s/%s/%s/' %(WEB_APP_REDIRECT_URL, data['access_token'], data['refresh_token'], user_id)
             return redirect(url)
         except:
-            return redirect('%s?error=Something went wrong - Please try again later!' %WEB_APP_REDIRECT_URL)
+            try:
+                message = data['error']
+            except:
+                try:
+                    message = data['message']
+                except:
+                    message = 'Something went wrong - Please try again later!'
+            if sign_in:
+                return {'message': message}, 500
+            return redirect('%s?error=%s' %(WEB_APP_REDIRECT_URL, message))
     else:
-        return jsonify({'error': 'Something went wrong - Please try again later!'})
-
-def home():
-    json = dict(request.args)
-    json_dict = {}
-    for k, v in json.items():
-        if type(v) is list and len(v) == 1:
-            json_dict[k] = v[0]
-        else:
-            json_dict[k] = v
-    if json_dict:
-        return jsonify(json_dict)
-    return jsonify({'message': 'Welcome to My API!'})
+        return jsonify({'message': 'Something went wrong - Please try again later!'}), 500
 
 @oauth2.clientgetter
 def load_client(client_id):
@@ -94,12 +130,9 @@ def load_grant(client_id, code):
 
 @oauth2.grantsetter
 def save_grant(client_id, code, request):
-    # decide the expires time yourself
     user = current_user()
     expires = datetime.utcnow() + timedelta(seconds=TOKEN_EXPIRES_IN)
     Grant.objects(client=str(client_id), user=user, _scopes=request.scopes).delete()
-    if user.is_admin:
-        request.scopes.append('admin')
     grant = Grant(
         client=str(client_id),
         code=code['code'],
@@ -124,12 +157,18 @@ def load_token(access_token=None, refresh_token=None):
             token = Token.objects(refresh_token=refresh_token, expires__gt=datetime.utcnow())[0]
         except:
             pass
+    if not token:
+        try:
+            access_token = request.json['access_token'].strip()
+            token = Token.objects(access_token=access_token)[0]
+        except:
+            pass
     return token
 
 @oauth2.tokensetter
 def save_token(token, request):
-    toks = Token.objects(client=request.client.id, user=request.user.id).delete()
     # make sure that every client has only one token connected to a user
+    toks = Token.objects(client=request.client.id, user=request.user.id).delete()
 
     expires_in = token.pop('expires_in')
     expires = datetime.utcnow() + timedelta(seconds=expires_in)
@@ -148,15 +187,15 @@ class Authorize(Resource):
 
     def __init__(self):
         self.reqparse = reqparse.RequestParser()
-        self.reqparse.add_argument('user_id', type=str, required=False)
-        self.reqparse.add_argument('client_id', type=str, required=True)
-        self.reqparse.add_argument('client_secret', type=str, required=True)
-        self.reqparse.add_argument('username', type=str, required=False)
-        self.reqparse.add_argument('password', type=str, required=False)
-        self.reqparse.add_argument('redirect_uri', type=str, required=True)
-        self.reqparse.add_argument('response_type', type=str, required=True)
-        self.reqparse.add_argument('scope', type=str, required=True)
-        self.reqparse.add_argument('thirdparty', type=str, required=False)
+        self.reqparse.add_argument('user_id', type=str, required=False, location='form')
+        self.reqparse.add_argument('client_id', type=str, required=True, location='form')
+        self.reqparse.add_argument('client_secret', type=str, required=True, location='form')
+        self.reqparse.add_argument('username', type=str, required=False, location='form')
+        self.reqparse.add_argument('password', type=str, required=False, location='form')
+        self.reqparse.add_argument('redirect_uri', type=str, required=True, location='form')
+        self.reqparse.add_argument('response_type', type=str, required=True, location='form')
+        self.reqparse.add_argument('scope', type=str, required=True, location='form')
+        self.reqparse.add_argument('thirdparty', type=str, required=False, location='form')
         super(Authorize, self).__init__()
 
     def post(self):
@@ -190,7 +229,7 @@ class Authorize(Resource):
                 return {'message': 'Invalid user_id'}, 403
         if not thirdparty_check:
             from werkzeug import check_password_hash
-            stored_password = str(usr.password)
+            stored_password = usr.password
             check = check_password_hash(stored_password, password)
             if check:
                 user = usr
@@ -203,13 +242,18 @@ class AccessToken(Resource):
 
     def __init__(self):
         self.reqparse = reqparse.RequestParser()
-        self.reqparse.add_argument('grant_type', type=str, required=True)
-        self.reqparse.add_argument('client_id', type=str, required=True)
-        self.reqparse.add_argument('client_secret', type=str, required=True)
-        self.reqparse.add_argument('code', type=str, required=False)
-        self.reqparse.add_argument('redirect_uri', type=str, required=False)
+        request_type = reqparse.request.method
+        if request_type == 'GET':
+            location = 'args'
+        else:
+            location = 'form'
+        self.reqparse.add_argument('grant_type', type=str, required=True, location=location)
+        self.reqparse.add_argument('client_id', type=str, required=True, location=location)
+        self.reqparse.add_argument('client_secret', type=str, required=True, location=location)
+        self.reqparse.add_argument('code', type=str, required=False, location=location)
+        self.reqparse.add_argument('redirect_uri', type=str, required=False, location=location)
         super(AccessToken, self).__init__()
-        
+
     def get(self):
         @oauth2.token_handler
         def apply_decorator(self):

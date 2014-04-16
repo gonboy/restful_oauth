@@ -4,7 +4,7 @@ from settings import INSTAGRAM_APP_ID, INSTAGRAM_APP_SECRET, INSTAGRAM_APP_SCOPE
                      INSTAGRAM_API_URL, INSTAGRAM_ACCESS_TOKEN_URL, INSTAGRAM_AUTHORIZE_URL
 from manage import oauth2_client, app
 from models import User, InstagramOAuth, THIRD_PARTY_DATA
-from myapi.oauth.views import login
+from myapi.oauth.views import authenticate_web_user
 
 from flask import url_for, session, request
 from flask.ext.restful import Resource
@@ -40,10 +40,11 @@ class ThirdPartySignUpInstagram(Resource):
 @app.route('/login/authorized/instagram')
 @instagram.authorized_handler
 def instagram_authorized(resp):
+    error = 'Something went wrong - Could not fetch data from Instagram'
     if resp is None:
-        return login(error='%s, error_description=%s' %(request.args['error_reason'], request.args['error_description']))
+        return authenticate_web_user(error='%s, error_description=%s' %(request.args['error_reason'], request.args['error_description']))
     if isinstance(resp, OAuthException):
-        return login(error=resp.message)
+        return authenticate_web_user(error=resp.message)
     (access_token, data) = (None, None)
     session['instagram_token'] = (resp['access_token'], '')
     try:
@@ -57,7 +58,7 @@ def instagram_authorized(resp):
     except:
         pass
     if not access_token or not data:
-        return login(error='Something went wrong - Could not fetch data from Instagram')
+        return authenticate_web_user(error=error)
     for k, v in dict(data).items():
         v = str(v).strip()
         if not v:
@@ -101,8 +102,7 @@ def instagram_authorized(resp):
     registered = False
     if user.password:
         registered = True
-    user_id = str(user.id)
-    return login(user_id=user_id, registered=registered)
+    return authenticate_web_user(user=user, registered=registered)
 
 @instagram.tokengetter
 def get_instagram_oauth_token():

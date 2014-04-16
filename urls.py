@@ -30,6 +30,11 @@ api.add_resource(ThirdPartySignUpGoogle, '/user/sign_up/google', endpoint='sign_
 api.add_resource(ThirdPartySignUpTwitter, '/user/sign_up/twitter', endpoint='sign_up_twitter')
 api.add_resource(ThirdPartySignUpInstagram, '/user/sign_up/instagram', endpoint='sign_up_instagram')
 
+# sign in
+from myapi.user.views import SignIn
+api.add_resource(SignIn, '/user/sign_in', endpoint='sign_in')
+
 # user - profile
-from myapi.user.views import UserProfile
-api.add_resource(UserProfile, '/%s/user/profile' %API_SETUP_VERSION, endpoint='profile')
+from myapi.user.views import GetSetProfile, GetProfileOther
+api.add_resource(GetSetProfile, '/%s/users' %API_SETUP_VERSION, endpoint='profile')
+api.add_resource(GetProfileOther, '/%s/users/<string:username>' %API_SETUP_VERSION, endpoint='profile_other')

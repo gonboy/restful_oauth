@@ -5,7 +5,7 @@ from settings import FACEBOOK_APP_ID, FACEBOOK_APP_SECRET, FACEBOOK_APP_SCOPES, 
                      FACEBOOK_API_URL, FACEBOOK_ACCESS_TOKEN_URL, FACEBOOK_AUTHORIZE_URL
 from manage import oauth2_client, app
 from models import User, FaceBookOAuth, GENDERS, THIRD_PARTY_DATA
-from myapi.oauth.views import login
+from myapi.oauth.views import authenticate_web_user
 
 from flask import url_for, session, request
 from flask.ext.restful import Resource
@@ -44,10 +44,11 @@ class ThirdPartySignUpFacebook(Resource):
 @app.route('/login/authorized/facebook')
 @facebook.authorized_handler
 def facebook_authorized(resp):
+    error = 'Something went wrong - Could not fetch data from Facebook'
     if resp is None:
-        return login(error='%s, error_description=%s' %(request.args['error_reason'], request.args['error_description']))
+        return authenticate_web_user(error='%s, error_description=%s' %(request.args['error_reason'], request.args['error_description']))
     if isinstance(resp, OAuthException):
-        return login(error=resp.message)
+        return authenticate_web_user(error=resp.message)
 
     session['oauth_token'] = (resp['access_token'], '')
     access_token = session['oauth_token'][0]
@@ -59,12 +60,16 @@ def facebook_authorized(resp):
             me = facebook.get('/me')
         except:
             pass
+        try:
+            error = me.data['error']['message']
+        except:
+            pass
     else:
-        return login(error='Something went wrong - Could not fetch data from Facebook')
+        return authenticate_web_user(error=error)
     if hasattr(me, 'data'):
         data = me.data
     if not data:
-        return login(error='Something went wrong - Could not fetch data from Facebook')
+        return authenticate_web_user(error=error)
     for k, v in dict(data).items():
         v = str(v).strip()
         if not v:
@@ -134,8 +139,7 @@ def facebook_authorized(resp):
     registered = False
     if user.password:
         registered = True
-    user_id = str(user.id)
-    return login(user_id=user_id, registered=registered)
+    return authenticate_web_user(user=user, registered=registered)
 
 @facebook.tokengetter
 def get_facebook_oauth_token():

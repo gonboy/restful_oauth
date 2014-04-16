@@ -1,36 +1,145 @@
 from datetime import date
 
 from settings import API_BASE_URL
-from models import User, Confirm, CONFIRM_FOR
+from models import User, Confirm, CONFIRM_FOR, THIRD_PARTY_DATA
 from manage import oauth2, mail
+from myapi.oauth.views import authenticate_web_user
 
-from flask.ext.restful import Resource, reqparse
+from flask.ext.restful import Resource, reqparse, fields, marshal
 from flask.ext.mail import Mail, Message
 from mongoengine.fields import EmailField
 from werkzeug.security import gen_salt
-from werkzeug import generate_password_hash
+from werkzeug import generate_password_hash, check_password_hash
 
 def send_verification_email(user, confirm):
     msg = Message("MyAPI - Verify your email!",
-                  sender="welcome@my.api.com",
+                  sender="welcome@myapi.com",
                   recipients=[confirm.confirmation_value])
     msg.body = "Please confirm your email. Follow the link -</br>"
-    msg.html = API_BASE_URL + 'confirm_email/?code=%s' %confirm.code
+    msg.html = API_BASE_URL + 'sign_up/confirm_email/?code=%s' %confirm.code
     mail.send(msg)
 
-class UserProfile(Resource):
-    decorators = [oauth2.require_oauth("normal-user")]
+class GetSetProfile(Resource):
+    decorators = [oauth2.require_oauth("profile")]
+
+    def __init__(self):
+        self.reqparse = reqparse.RequestParser()
+        request_type = reqparse.request.method
+        if request_type == 'GET':
+            self.reqparse.add_argument('field', type=str, required=True, location='args', action='append')
+        if request_type == 'PUT':
+            self.reqparse.add_argument('fields', type=dict, required=True, location='json')
+        super(GetSetProfile, self).__init__()
 
     def get(self, request):
-        user = User.objects(id=request.user.id)[0]
-        data = {}
-        for key, value in user.__dict__['_data'].items():
-            if value:
-                data[key] = str(value)
-        return data
+        user = request.user
+        args = self.reqparse.parse_args()
+        fields = args['field']
+        allowed_fields = {
+                          'username': user.username, 'first_name': user.first_name, \
+                          'last_name': user.last_name, 'email': user.email, 'location': user.location, \
+                          'gender': user.gender, 'dob': user.dob, 'rating': user.rating, \
+                          'picture': user.picture, 'user_id': str(user.id),
+                         }
+        return_json = {}
+        for field in fields:
+            field = field.strip().lower()
+            try:
+                return_json[field] = allowed_fields[field]
+            except:
+                pass
+        if not return_json:
+            return {'message': 'Please select valid allowed fields'}, 404
+        return return_json
 
-    def post(self, request):
-        return self.get(request)
+    def put(self, request):
+        args = self.reqparse.parse_args()
+        user = request.user
+        db_fields = {
+                     'username': fields.String,
+                     'first_name': fields.String,
+                     'last_name': fields.String,
+                     'location': fields.String,
+                     'gender': fields.String,
+                     'dob': fields.String,
+                     'picture': fields.String,
+                    }
+        try:
+            db_fields = marshal(args['fields'], db_fields)
+        except:
+            return {'message': 'Please send the json in correct format'}, 404
+        result = {}
+        for k, v in dict(db_fields).items():
+            k = k.lower().strip()
+            if v is not None:
+                if k == 'username':
+                    error = User.validate_username(v)
+                    if error:
+                        result[k] = error
+                        continue
+                elif k == 'gender':
+                    if v.lower().strip() not in ['m', 'f']:
+                        result[k] = 'invalid'
+                        continue
+                elif k == 'dob':
+                    try:
+                        x = v.strip().split('-')
+                        v = '-'.join(x)
+                        date(int(x[0]), int(x[1]), int(x[2]))
+                    except:
+                        result[k] = 'invalid'
+                        continue
+                try:
+                    setattr(user, k, v)
+                    result[k] = 'success'
+                except:
+                    setattr(user, k, 'invalid')
+        if result:
+            fields_updated = list(user.fields_updated)
+            third_party_data = {v: k for k, v in THIRD_PARTY_DATA.items()}
+            for key in result:
+                try:
+                    fields_updated.append(third_party_data[key])
+                except:
+                    pass
+            fields_updated = list(set(fields_updated))
+            user.fields_updated = fields_updated
+            user.save()
+            return result
+        else:
+            return {'message': 'nothing to save'}, 404
+
+class GetProfileOther(Resource):
+    decorators = [oauth2.require_oauth("profile", "surrogate-authenticated")]
+
+    def __init__(self):
+        self.reqparse = reqparse.RequestParser()
+        self.reqparse.add_argument('field', type=str, required=True, location='args', action='append')
+        super(GetProfileOther, self).__init__()
+
+    def get(self, request, username):
+        try:
+            user = User.objects(username=username.strip())[0]
+        except:
+            return {'message': 'User does not exist!'}, 404
+        args = self.reqparse.parse_args()
+        fields = args['field']
+        allowed_fields = {
+                          'username': user.username, 'first_name': user.first_name, \
+                          'last_name': user.last_name, 'location': user.location, \
+                          'gender': user.gender, 'dob': user.dob, 'rating': user.rating, \
+                          'picture': user.picture
+                         }
+        return_json = {}
+        for field in fields:
+            field = field.strip().lower()
+            try:
+                return_json[field] = allowed_fields[field]
+            except:
+                pass
+        if not return_json:
+            return {'message': 'Please select valid allowed fields'}, 404
+        return return_json
 
 class SignUp(Resource):
     def __init__(self):
@@ -44,7 +153,7 @@ class SignUp(Resource):
         self.reqparse.add_argument('location', type=str, required=False)
         self.reqparse.add_argument('dob', type=str, required=False)
         super(SignUp, self).__init__()
-        
+
     def get(self):
         args = self.reqparse.parse_args()
         email = args['email']
@@ -102,9 +211,6 @@ class SignUp(Resource):
         check = Confirm.objects(confirmation_value=email)
         if check:
             return {'message': "You have already registered with this email address and haven't confirmed it yet"}, 400
-        check = User.objects(email=email)
-        if check:
-            return {'message': "An account is already associated with this email address"}, 400
         username = args['username']
         error = User.validate_username(username)
         if error:
@@ -122,21 +228,21 @@ class SignUp(Resource):
         email_confirm = Confirm(user=user, code=gen_salt(50), confirmation_for=CONFIRM_FOR['email'], \
                                 confirmation_value=email)
         email_confirm.save()
-        send_verification_email(user, email_confirm)
+        #send_verification_email(user, email_confirm)
         return {'status': 'success'}
 
     def post(self):
         return self.get(request)
 
 class SignUpThirdParty(Resource):
-    decorators = [oauth2.require_oauth("normal-user")]
+    decorators = [oauth2.require_oauth("profile")]
 
     def __init__(self):
         self.reqparse = reqparse.RequestParser()
         self.reqparse.add_argument('username', type=str, required=True)
         self.reqparse.add_argument('password', type=str, required=True)
         super(SignUpThirdParty, self).__init__()
-        
+
     def get(self, request):
         args = self.reqparse.parse_args()
         user = request.user
@@ -165,13 +271,13 @@ class SignUpThirdParty(Resource):
         return self.get(request)
 
 class UsernameAvailability(Resource):
-    decorators = [oauth2.require_oauth("normal-user")]
+    decorators = [oauth2.require_oauth("profile")]
 
     def __init__(self):
         self.reqparse = reqparse.RequestParser()
         self.reqparse.add_argument('username', type=str, required=True)
         super(UsernameAvailability, self).__init__()
-        
+
     def get(self, request):
         args = self.reqparse.parse_args()
         username = args['username']
@@ -180,5 +286,33 @@ class UsernameAvailability(Resource):
             return {'message': error}, 400
         return {'status': 'available'}
 
-    def post(self, request):
-        return self.get(request)
+class SignIn(Resource):
+
+    def __init__(self):
+        self.reqparse = reqparse.RequestParser()
+        self.reqparse.add_argument('username', type=str, required=True)
+        self.reqparse.add_argument('password', type=str, required=True)
+        super(SignIn, self).__init__()
+
+    def get(self):
+        args = self.reqparse.parse_args()
+        password = ''.encode("utf-8")
+        password += args['password']
+        username = args['username'].strip()
+        if not username:
+            return {'message': 'Username missing!'}, 403
+        if not password:
+            return {'message': 'Password missing!'}, 403
+        user = User.objects(username=username)
+        if not user:
+            return {'message': 'Invalid username or password'}, 403
+        user = user[0]
+        stored_password = user.password
+        check = check_password_hash(stored_password, password)
+        if check:
+            return authenticate_web_user(user=user, sign_in=True)
+        else:
+            return {'message': 'Invalid username or password'}, 403
+
+    def post(self):
+        return self.get()

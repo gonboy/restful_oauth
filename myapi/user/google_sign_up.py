@@ -4,7 +4,7 @@ from settings import GOOGLE_APP_ID, GOOGLE_APP_SECRET, GOOGLE_APP_SCOPES, GOOGLE
                      GOOGLE_API_URL, GOOGLE_ACCESS_TOKEN_URL, GOOGLE_AUTHORIZE_URL
 from manage import oauth2_client, app
 from models import User, GoogleOAuth, GENDERS, THIRD_PARTY_DATA
-from myapi.oauth.views import login
+from myapi.oauth.views import authenticate_web_user
 
 from flask import url_for, session, request
 from flask.ext.restful import Resource
@@ -39,10 +39,11 @@ class ThirdPartySignUpGoogle(Resource):
 @app.route('/login/authorized/google')
 @google.authorized_handler
 def google_authorized(resp):
+    error = 'Something went wrong - Could not fetch data from Google'
     if resp is None:
-        return login(error='%s, error_description=%s' %(request.args['error_reason'], request.args['error_description']))
+        return authenticate_web_user(error='%s, error_description=%s' %(request.args['error_reason'], request.args['error_description']))
     if isinstance(resp, OAuthException):
-        return login(error=resp.message)
+        return authenticate_web_user(error=resp.message)
 
     session['google_token'] = (resp['access_token'], '')
     access_token = session['google_token'][0]
@@ -58,14 +59,22 @@ def google_authorized(resp):
             me_plus = google.get(GOOGLE_PLUS_API_URL+'people/me')
         except:
             pass
+        try:
+            error = me_plus.data['error']['message']
+        except:
+            pass
+        try:
+            error = me.data['error']['message']
+        except:
+            pass
     else:
-        return login(error='Something went wrong - Could not fetch data from Google')
+        return authenticate_web_user(error=error)
     if hasattr(me, 'data'):
         data = me.data
     if hasattr(me_plus, 'data'):
         data_plus = me_plus.data
     if not data and not data_plus:
-        return login(error='Something went wrong - Could not fetch data from Google')
+        return authenticate_web_user(error=error)
     data.update(data_plus)
     for k, v in dict(data).items():
         v = str(v).strip()
@@ -127,8 +136,7 @@ def google_authorized(resp):
     registered = False
     if user.password:
         registered = True
-    user_id = str(user.id)
-    return login(user_id=user_id, registered=registered)
+    return authenticate_web_user(user=user, registered=registered)
 
 @google.tokengetter
 def get_google_oauth_token():

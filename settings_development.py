@@ -4,7 +4,7 @@ API_BASE_URL = ''
 
 # Web App Settings
 WEB_APP_REDIRECT_URL = ''
-WEB_APP_SCOPES = 'normal-user'
+WEB_APP_SCOPES = 'profile'
 WEB_APP_CLIENT_ID = ''
 WEB_APP_CLIENT_SECRET = ''
 

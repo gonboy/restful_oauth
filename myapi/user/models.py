@@ -1,6 +1,8 @@
 import re
+from cgi import escape
 from connection import db
 from datetime import datetime, date
+from flask.ext.restful import abort
 
 # DO NOT change these dictionaries
 THIRD_PARTY_DATA = {
@@ -45,6 +47,38 @@ class User(db.Document):
                     {'fields': ['username'], 'unique': True, 'sparse': True, 'index_options': {'hashed': True}},
                     ],
             }
+
+    def save(self, *args, **kwargs):
+        try:
+            changed_fields = self._changed_fields
+        except:
+            changed_fields = []
+        for x in changed_fields:
+            if self._fields[x].max_length:
+                value = getattr(self, x)
+                if len(value) > (self._fields[x].max_length):
+                    abort(400, message="%s should be at most %s characters" %(x, self._fields[x].max_length))
+            if self._fields[x].min_length:
+                value = getattr(self, x)
+                if len(value) < (self._fields[x].min_length):
+                    abort(400, message="%s should be at least %s characters" %(self._fields[x].min_length))
+        # javascript / html tags escaping
+        fields_to_escape = ['location', ]
+        fields_to_escape = list(set(fields_to_escape).intersection(set(changed_fields)))
+        for field in fields_to_escape:
+            value = getattr(self, field)
+            if value:
+                setattr(self, field, escape(value))
+        # sanitize first_name & last_name
+        if 'first_name' in changed_fields:
+            first_name = ''.join(re.findall('([\sa-zA-Z\.-])', self.first_name))
+            first_name = re.sub('\s+', ' ', first_name).strip()
+            self.first_name = first_name
+        if 'last_name' in changed_fields:
+            last_name = ''.join(re.findall('([\sa-zA-Z\.-])', self.last_name))
+            last_name = re.sub('\s+', ' ', last_name).strip()
+            self.last_name = last_name
+        super(User, self).save(*args, **kwargs)
 
     @property
     def user_id(self):

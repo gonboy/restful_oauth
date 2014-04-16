@@ -37,7 +37,7 @@ app.config.update({
 })
 @app.errorhandler(404)
 def page_not_found(e):
-    return make_response(jsonify({'message': '404 Not Found - Invalid API Call!'}), 404)
+    return make_response(jsonify({'message': '%s - Invalid API Call!' %e}), 404)
 
 project_path = os.path.abspath(os.path.join(os.path.dirname(__file__), '.'))
 

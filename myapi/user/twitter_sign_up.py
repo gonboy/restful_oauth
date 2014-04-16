@@ -4,7 +4,7 @@ from settings import TWITTER_APP_ID, TWITTER_APP_SECRET, TWITTER_REQUEST_TOKEN_U
                      TWITTER_API_URL, TWITTER_ACCESS_TOKEN_URL, TWITTER_AUTHORIZE_URL
 from manage import oauth2_client, app
 from models import User, TwitterOAuth, THIRD_PARTY_DATA
-from myapi.oauth.views import login
+from myapi.oauth.views import authenticate_web_user
 
 from flask import url_for, session, request
 from flask.ext.restful import Resource
@@ -39,10 +39,11 @@ class ThirdPartySignUpTwitter(Resource):
 @app.route('/login/authorized/twitter')
 @twitter.authorized_handler
 def twitter_authorized(resp):
+    error = 'Something went wrong - Could not fetch data from Twitter'
     if resp is None:
-        return login(error='%s, error_description=%s' %(request.args['error_reason'], request.args['error_description']))
+        return authenticate_web_user(error='%s, error_description=%s' %(request.args['error_reason'], request.args['error_description']))
     if isinstance(resp, OAuthException):
-        return login(error=resp.message)
+        return authenticate_web_user(error=resp.message)
     (access_token, me, data) = (None, None, None)
     session['twitter_oauth'] = resp
     try:
@@ -57,12 +58,16 @@ def twitter_authorized(resp):
             me = twitter.get('users/show.json?screen_name=%s' %screen_name)
         except:
             pass
+        try:
+            error = me.data['error']['message']
+        except:
+            pass
     else:
-        return login(error='Something went wrong - Could not fetch data from Twitter')
+        return authenticate_web_user(error=error)
     if hasattr(me, 'data'):
         data = me.data
     if not data:
-        return login(error='Something went wrong - Could not fetch data from Twitter')
+        return authenticate_web_user(error=error)
     for k, v in dict(data).items():
         v = str(v).strip()
         if not v:
@@ -106,8 +111,7 @@ def twitter_authorized(resp):
     registered = False
     if user.password:
         registered = True
-    user_id = str(user.id)
-    return login(user_id=user_id, registered=registered)
+    return authenticate_web_user(user=user, registered=registered)
 
 @twitter.tokengetter
 def get_twitter_token():
