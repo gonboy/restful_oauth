@@ -19,7 +19,7 @@ def send_verification_email(user, confirm):
     msg.html = API_BASE_URL + 'sign_up/confirm_email/?code=%s' %confirm.code
     mail.send(msg)
 
-class GetSetProfile(Resource):
+class UserSelf(Resource):
     decorators = [oauth2.require_oauth("profile")]
 
     def __init__(self):
@@ -29,7 +29,7 @@ class GetSetProfile(Resource):
             self.reqparse.add_argument('field', type=str, required=True, location='args', action='append')
         if request_type == 'PUT':
             self.reqparse.add_argument('fields', type=dict, required=True, location='json')
-        super(GetSetProfile, self).__init__()
+        super(UserSelf, self).__init__()
 
     def get(self, request):
         user = request.user
@@ -109,13 +109,13 @@ class GetSetProfile(Resource):
         else:
             return {'message': 'nothing to save'}, 404
 
-class GetProfileOther(Resource):
+class UserOther(Resource):
     decorators = [oauth2.require_oauth("profile", "surrogate-authenticated")]
 
     def __init__(self):
         self.reqparse = reqparse.RequestParser()
         self.reqparse.add_argument('field', type=str, required=True, location='args', action='append')
-        super(GetProfileOther, self).__init__()
+        super(UserOther, self).__init__()
 
     def get(self, request, username):
         try:

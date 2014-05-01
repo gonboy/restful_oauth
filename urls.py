@@ -35,6 +35,6 @@ from myapi.user.views import SignIn
 api.add_resource(SignIn, '/user/sign_in', endpoint='sign_in')
 
 # user - profile
-from myapi.user.views import GetSetProfile, GetProfileOther
-api.add_resource(GetSetProfile, '/%s/users' %API_SETUP_VERSION, endpoint='profile')
-api.add_resource(GetProfileOther, '/%s/users/<string:username>' %API_SETUP_VERSION, endpoint='profile_other')
+from myapi.user.views import UserSelf, UserOther
+api.add_resource(UserSelf, '/%s/user' %API_SETUP_VERSION, endpoint='profile')
+api.add_resource(UserOther, '/%s/user/<string:username>' %API_SETUP_VERSION, endpoint='profile_other')
